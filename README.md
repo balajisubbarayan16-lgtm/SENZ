@@ -1,6 +1,6 @@
-# SPONGE
+# SENZ
 
-SPONGE is a local-first visitor assistant prototype. It uses a camera to recognize people whose profiles have been explicitly saved, and lets you ask by voice about their relationship, reminders, and appointments.
+SENZ is a local-first visitor assistant prototype. It uses a camera to recognize people whose profiles have been explicitly saved, and lets you ask by voice about their relationship, reminders, and appointments.
 
 The current prototype runs on a Windows PC. It uses OpenCV for face detection and matching, Vosk for local speech recognition, Ollama for conversational responses, and MongoDB for reminders, appointments, and conversation memory. Smart-glasses hardware is a future direction; this repository does not run on glasses yet.
 
