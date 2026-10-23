@@ -24,6 +24,7 @@ from memory_store import (
     answer_meeting_question,
     answer_conversationally,
     connect_database,
+    _extract_meeting_fields,
     generate_notification,
     interpret_voice_utterance,
     list_appointments,
@@ -102,6 +103,15 @@ PAGE = r'''<!doctype html>
       <div class="modal-actions"><button class="button" type="button" onclick="closeEditDialog()">Cancel</button><button class="button primary" type="submit">Save changes</button></div>
     </form>
   </div>
+  <div id="enrollmentDialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="enrollmentTitle">
+    <form id="enrollmentForm" class="modal-card">
+      <h2 id="enrollmentTitle">Confirm the new person's name</h2>
+      <p class="sub">Speech recognition can mishear names. Check the spelling before saving this face.</p>
+      <label>Name<input id="enrollmentName" maxlength="80" required></label>
+      <label>Relationship (optional)<input id="enrollmentRelationship" maxlength="80" placeholder="For example: friend"></label>
+      <div class="modal-actions"><button class="button" type="button" onclick="closeEnrollmentDialog()">Cancel</button><button class="button primary" type="submit">Confirm and save face</button></div>
+    </form>
+  </div>
   <div id="appointmentDialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="appointmentTitle">
     <form id="appointmentForm" class="modal-card">
       <h2 id="appointmentTitle">Book an appointment or meeting</h2>
@@ -122,13 +132,16 @@ if('speechSynthesis'in window){loadSpeechVoices();speechSynthesis.onvoiceschange
 async function api(path,body){let r=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});let data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||'Request failed');return data}
 function openEditDialog(s=lastState){if(!s||!s.person||['Unrecognized visitor','Recent unrecognized visitor','No known visitor','Waiting for camera','Camera off'].includes(s.person))return;$('editName').value=s.person;$('editRelationship').value=s.relationship||'';$('editReminder').value=s.profile_reminder||'';$('editDialog').hidden=false;$('editName').focus()}
 function closeEditDialog(){$('editDialog').hidden=true}
+function closeEnrollmentDialog(){$('enrollmentDialog').hidden=true}
 function closeAppointmentDialog(){$('appointmentDialog').hidden=true}
 async function openAppointmentDialog(){const person=lastState?.person||'';$('appointmentPerson').value=['Unrecognized visitor','Recent unrecognized visitor','No known visitor','Waiting for camera','Camera off'].includes(person)?'':person;$('appointmentDate').value='';$('appointmentTime').value='';$('appointmentSummary').value='';$('appointmentDialog').hidden=false;await loadAppointments();$('appointmentSummary').focus()}
 async function loadAppointments(){const list=$('appointmentList');try{const data=await api('/api/appointments');list.replaceChildren();if(!data.appointments.length){const li=document.createElement('li');li.textContent='No upcoming appointments saved.';list.appendChild(li);return}for(const item of data.appointments){const li=document.createElement('li'),title=document.createElement('strong'),detail=document.createElement('span');title.textContent=item.summary||'Appointment';detail.textContent=[item.with_person,item.date_text,item.time_text].filter(Boolean).join(' · ');li.append(title,detail);list.appendChild(li)}}catch(e){list.replaceChildren();const li=document.createElement('li');li.textContent=e.message;list.appendChild(li)}}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeEditDialog();closeAppointmentDialog()}});
-document.addEventListener('click',e=>{if(e.target===$('editDialog'))closeEditDialog();if(e.target===$('appointmentDialog'))closeAppointmentDialog()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeEditDialog();closeEnrollmentDialog();closeAppointmentDialog()}});
+document.addEventListener('click',e=>{if(e.target===$('editDialog'))closeEditDialog();if(e.target===$('enrollmentDialog'))closeEnrollmentDialog();if(e.target===$('appointmentDialog'))closeAppointmentDialog()});
 async function saveEditedProfile(e){e.preventDefault();if(!lastState)return;try{const result=await api('/api/profile',{old_name:lastState.person,name:$('editName').value.trim(),relationship:$('editRelationship').value.trim(),reminder:$('editReminder').value.trim()});closeEditDialog();$('notice').textContent=result.message||'Person details updated.';await refresh()}catch(err){$('notice').textContent=err.message}}
 $('editProfileForm').addEventListener('submit',saveEditedProfile);
+async function saveEnrollment(e){e.preventDefault();const button=$('enrollmentForm').querySelector('button[type=submit]');button.disabled=true;try{const result=await api('/api/enroll',{name:$('enrollmentName').value.trim(),relationship:$('enrollmentRelationship').value.trim()});closeEnrollmentDialog();$('notice').textContent=result.message||'Person saved.';await refresh()}catch(err){$('notice').textContent=err.message}finally{button.disabled=false}}
+$('enrollmentForm').addEventListener('submit',saveEnrollment);
 async function saveAppointment(e){e.preventDefault();const button=$('appointmentForm').querySelector('button[type=submit]');button.disabled=true;try{const result=await api('/api/appointments',{summary:$('appointmentSummary').value.trim(),with_person:$('appointmentPerson').value.trim(),date_iso:$('appointmentDate').value,time_24h:$('appointmentTime').value});$('notice').textContent=result.message||'Appointment saved.';$('appointmentForm').reset();await loadAppointments();await refresh()}catch(err){$('notice').textContent=err.message}finally{button.disabled=false}}
 $('appointmentForm').addEventListener('submit',saveAppointment);
 async function control(action){try{await api('/api/control',{action});if(action==='stop')stopPhone();await refresh()}catch(e){$('notice').textContent=e.message}}
@@ -138,7 +151,7 @@ function stopPhone(){if(frameTimer){clearInterval(frameTimer);frameTimer=null}if
 function startPhoneFrameUpload(){const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');let busy=false;frameTimer=setInterval(()=>{if(busy||!phoneStream)return;const v=$('phoneCamera');if(!v.videoWidth)return;busy=true;canvas.width=Math.min(v.videoWidth,640);canvas.height=Math.round(v.videoHeight*canvas.width/v.videoWidth);ctx.drawImage(v,0,0,canvas.width,canvas.height);canvas.toBlob(async blob=>{try{if(blob)await fetch('/api/phone-frame',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob})}catch{}finally{busy=false}},'image/jpeg',.72)},280)}
 function downsample(input,fromRate,toRate){if(fromRate===toRate)return input;const ratio=fromRate/toRate,outLength=Math.floor(input.length/ratio),out=new Float32Array(outLength);for(let i=0;i<outLength;i++){const start=Math.floor(i*ratio),end=Math.floor((i+1)*ratio);let sum=0;for(let j=start;j<end;j++)sum+=input[j];out[i]=sum/Math.max(1,end-start)}return out}
 function startPhoneAudioUpload(){audioContext=new AudioContext();audioContext.resume();const source=audioContext.createMediaStreamSource(phoneStream),muter=audioContext.createGain();muter.gain.value=0;audioProcessor=audioContext.createScriptProcessor(4096,1,1);audioProcessor.onaudioprocess=e=>{const chunk=downsample(e.inputBuffer.getChannelData(0),audioContext.sampleRate,16000),joined=new Float32Array(pcmPending.length+chunk.length);joined.set(pcmPending);joined.set(chunk,pcmPending.length);pcmPending=joined;if(pcmPending.length>=16000&&!audioBusy){const n=16000,pcm=new Int16Array(n);for(let i=0;i<n;i++)pcm[i]=Math.max(-1,Math.min(1,pcmPending[i]))*32767;pcmPending=pcmPending.slice(n);audioBusy=true;fetch('/api/phone-audio',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:pcm.buffer}).catch(()=>{}).finally(()=>audioBusy=false)}};source.connect(audioProcessor);audioProcessor.connect(muter);muter.connect(audioContext.destination)}
-async function refresh(){try{let s=await api('/api/state'),previousState=lastState;lastState=s;$('cameraStatus').textContent=s.running?(s.paused?'Recognition paused':'Camera on'):'Camera off';$('cameraStatus').className='status '+(s.running&&!s.paused?'on':'');$('start').textContent=s.running?'Stop camera':'Start on PC';$('start').onclick=()=>control(s.running?'stop':'start');$('startPhone').textContent=s.running&&s.input_mode==='phone'?'Stop phone camera & mic':'Use phone camera & mic';$('startPhone').disabled=s.running&&s.input_mode!=='phone';$('startPhone').onclick=()=>s.running?control('stop'):startPhone();$('phoneFacing').disabled=s.running;$('switchPhone').disabled=switchingPhoneCamera||!(s.running&&s.input_mode==='phone');if(s.running&&!lastRunning)$('video').src='/video?t='+Date.now();lastRunning=s.running;$('pause').textContent=s.paused?'Resume recognition':'Pause recognition';$('mute').textContent=s.muted?'Unmute speech':'Mute speech';$('person').textContent=s.person||'Waiting for camera';$('relationship').textContent=s.relationship||'';$('editProfile').disabled=!s.person||['Unrecognized visitor','Recent unrecognized visitor','No known visitor','Waiting for camera','Camera off'].includes(s.person);$('count').textContent=`Face samples: ${s.samples}/${s.samples_required}`;$('notice').textContent=s.notice||'Ready';$('notice').className='notice '+(s.sample_ready?'ready':'');$('reminder').textContent=s.reminder||'No reminder yet.';$('voiceStatus').textContent=(s.voice_error?`Microphone unavailable: ${s.voice_error}`:(s.voice_ready?`${s.input_mode==='phone'?'Phone':'PC'} microphone listening locally.`:`${s.input_mode==='phone'?'Phone':'PC'} microphone is starting or unavailable.`))+(s.last_transcript?` Heard: “${s.last_transcript}”`:``);if(previousState&&s.edit_requested>previousState.edit_requested)openEditDialog(s);if(s.speech_id>lastSpeech){lastSpeech=s.speech_id;if($('speech').checked)say(s.speech_text||'')}}catch(e){$('notice').textContent=e.message}}
+async function refresh(){try{let s=await api('/api/state'),previousState=lastState;lastState=s;$('cameraStatus').textContent=s.running?(s.paused?'Recognition paused':'Camera on'):'Camera off';$('cameraStatus').className='status '+(s.running&&!s.paused?'on':'');$('start').textContent=s.running?'Stop camera':'Start on PC';$('start').onclick=()=>control(s.running?'stop':'start');$('startPhone').textContent=s.running&&s.input_mode==='phone'?'Stop phone camera & mic':'Use phone camera & mic';$('startPhone').disabled=s.running&&s.input_mode!=='phone';$('startPhone').onclick=()=>s.running?control('stop'):startPhone();$('phoneFacing').disabled=s.running;$('switchPhone').disabled=switchingPhoneCamera||!(s.running&&s.input_mode==='phone');if(s.running&&!lastRunning)$('video').src='/video?t='+Date.now();lastRunning=s.running;$('pause').textContent=s.paused?'Resume recognition':'Pause recognition';$('mute').textContent=s.muted?'Unmute speech':'Mute speech';$('person').textContent=s.person||'Waiting for camera';$('relationship').textContent=s.relationship||'';$('editProfile').disabled=!s.person||['Unrecognized visitor','Recent unrecognized visitor','No known visitor','Waiting for camera','Camera off'].includes(s.person);$('count').textContent=`Face samples: ${s.samples}/${s.samples_required}`;$('notice').textContent=s.notice||'Ready';$('notice').className='notice '+(s.sample_ready?'ready':'');$('reminder').textContent=s.reminder||'No reminder yet.';$('voiceStatus').textContent=(s.voice_error?`Microphone unavailable: ${s.voice_error}`:(s.voice_ready?`${s.input_mode==='phone'?'Phone':'PC'} microphone listening locally.`:`${s.input_mode==='phone'?'Phone':'PC'} microphone is starting or unavailable.`))+(s.last_transcript?` Heard: “${s.last_transcript}”`:``);if(previousState&&s.edit_requested>previousState.edit_requested)openEditDialog(s);if(previousState&&s.enrollment_requested>previousState.enrollment_requested&&s.pending_enrollment){$('enrollmentName').value=s.pending_enrollment.name||'';$('enrollmentRelationship').value=s.pending_enrollment.relationship||'';$('enrollmentDialog').hidden=false;$('enrollmentName').focus()}if(s.speech_id>lastSpeech){lastSpeech=s.speech_id;if($('speech').checked)say(s.speech_text||'')}}catch(e){$('notice').textContent=e.message}}
 $('commandForm').addEventListener('submit',async e=>{e.preventDefault();let text=$('command').value.trim();if(!text)return;try{let r=await api('/api/command',{text});$('command').value='';$('notice').textContent=r.message||'Done.';await refresh()}catch(err){$('notice').textContent=err.message}});
 $('video').src='/video';setInterval(refresh,900);refresh();
 </script>
@@ -156,6 +169,8 @@ class AssistantService:
             "speaking": False, "voice_ready": False, "voice_error": "",
             "current_visitor": "Waiting for camera", "relationship": "",
             "profile_reminder": "", "edit_requested": 0,
+            "enrollment_requested": 0, "pending_enrollment": None,
+            "pending_appointment": None,
             "last_reminder": "Start the camera to see visitor reminders here.",
             "candidate_samples": [], "candidate_embedding": None,
             "candidate_last_seen": 0.0, "candidate_sampling_notified": False,
@@ -185,7 +200,7 @@ class AssistantService:
             if ready:
                 self.state["candidate_ready_notified"] = True
 
-    def publish_response(self, text, remember=True):
+    def publish_response(self, text, remember=False):
         with self.lock:
             if remember:
                 self.state["last_reminder"] = text
@@ -254,6 +269,37 @@ class AssistantService:
             message = f"Updated {name}'s details."
             self.state["notice"] = message
         return message
+
+    def confirm_person_enrollment(self, name, relationship):
+        name = str(name).strip()
+        relationship = str(relationship).strip()
+        if not name or len(name) > 80 or len(relationship) > 80:
+            raise ValueError("Enter a valid name and a relationship under 80 characters.")
+        with self.lock:
+            pending = self.state.get("pending_enrollment")
+            candidate = self.state.get("candidate_embedding")
+        if not pending or candidate is None:
+            raise ValueError("The face sample expired. Keep the person in view and say the save command again.")
+        if name in load_people():
+            raise ValueError(f"{name} is already saved. Use Edit profile to change that person's details.")
+        save_profile(name, relationship)
+        people = load_people()
+        people[name] = candidate
+        temporary_path = PEOPLE_PATH.with_suffix(".tmp")
+        temporary_path.write_text(json.dumps(people, indent=2), encoding="utf-8")
+        temporary_path.replace(PEOPLE_PATH)
+        with self.lock:
+            self.state["candidate_samples"] = []
+            self.state["candidate_embedding"] = None
+            self.state["candidate_sampling_notified"] = False
+            self.state["candidate_ready_notified"] = False
+            self.state["pending_enrollment"] = None
+            self.state["people_changed"] = True
+            self.state["current_visitor"] = name
+            self.state["current_person_for_question"] = name
+            self.state["relationship"] = relationship
+        relation_text = f", your {relationship}" if relationship else ""
+        return f"Saved {name}{relation_text}. I'll recognize them next time."
 
     @staticmethod
     def arrival_text(name, relationship, reminder):
@@ -584,8 +630,78 @@ class AssistantService:
             if action == "stop":
                 self.stop()
             else:
-                self.publish_response(response)
+                self.publish_response(response, remember=False)
             return response
+
+        # Keep booking as a short spoken conversation when the first request
+        # omits the person, date, or time instead of abandoning the booking.
+        with self.lock:
+            pending_appointment = dict(self.state.get("pending_appointment") or {})
+        if pending_appointment and phrase in {"cancel", "cancel appointment", "cancel meeting", "never mind"}:
+            with self.lock:
+                self.state["pending_appointment"] = None
+            message = "Okay, I cancelled that booking."
+            self.publish_response(message, remember=False)
+            return message
+        if pending_appointment:
+            known_names = list(load_people().keys())
+            parsed = _extract_meeting_fields(text, known_names)
+            for field in ("date_iso", "time_24h", "date_text", "time_text"):
+                if parsed.get(field):
+                    pending_appointment[field] = parsed[field]
+            if not pending_appointment.get("meeting_with"):
+                person_match = re.search(r"\b(?:with|meet|see)\s+(.+)$", text, re.IGNORECASE)
+                guessed_person = next(
+                    (name for name in known_names if re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.IGNORECASE)),
+                    "",
+                )
+                if not guessed_person and person_match:
+                    guessed_person = re.split(
+                        r"\b(?:today|tomorrow|next|on|at|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+                        person_match.group(1), maxsplit=1, flags=re.IGNORECASE,
+                    )[0].strip(" .,!?;:")
+                if not guessed_person and len(text.split()) <= 6:
+                    remainder = re.sub(
+                        r"\b(?:today|tomorrow|next|on|at|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+                        r"january|february|march|april|may|june|july|august|september|october|november|december|"
+                        r"a\.?m\.?|p\.?m\.?|noon|midnight|meeting|appointment)\b|\b\d{1,4}(?::\d{2})?\b",
+                        "", text, flags=re.IGNORECASE,
+                    ).strip(" .,!?;:")
+                    if remainder and not parsed.get("date_iso") and not parsed.get("time_24h"):
+                        guessed_person = remainder
+                    elif remainder and (parsed.get("date_iso") or parsed.get("time_24h")):
+                        guessed_person = remainder
+                if guessed_person:
+                    pending_appointment["meeting_with"] = guessed_person
+            missing = [
+                label for key, label in (("meeting_with", "who the appointment is with"),
+                                         ("date_iso", "the date"))
+                if not pending_appointment.get(key)
+            ]
+            if len(missing) < 2:
+                with self.lock:
+                    self.state["pending_appointment"] = pending_appointment
+                if not missing:
+                    save_appointment(
+                        pending_appointment.get("summary", "Meeting"),
+                        pending_appointment["meeting_with"],
+                        pending_appointment["date_iso"],
+                        pending_appointment["time_24h"],
+                    )
+                    message = (
+                        f"Booked {pending_appointment.get('summary', 'Meeting')} with "
+                        f"{pending_appointment['meeting_with']} for "
+                        f"{pending_appointment.get('date_text') or pending_appointment['date_iso']}"
+                        + (f" at {pending_appointment.get('time_text') or pending_appointment['time_24h']}" if pending_appointment.get("time_24h") else "; no time was specified")
+                        + "."
+                    )
+                    with self.lock:
+                        self.state["pending_appointment"] = None
+                    self.publish_response(message, remember=False)
+                    return message
+                message = "Thanks. Please tell me " + ", then ".join(missing) + "."
+                self.publish_response(message, remember=False)
+                return message
 
         with self.lock:
             known_names = list(load_people().keys())
@@ -616,22 +732,15 @@ class AssistantService:
             elif not candidate:
                 message = "No face sample is ready yet. Keep one unfamiliar face in view until you hear the ready message, then try again."
             else:
-                save_profile(name, relationship)
-                people = load_people()
-                people[name] = candidate
-                temporary_path = PEOPLE_PATH.with_suffix(".tmp")
-                temporary_path.write_text(json.dumps(people, indent=2), encoding="utf-8")
-                temporary_path.replace(PEOPLE_PATH)
+                # Speech recognition often mishears Indian names. Let the user
+                # correct the transcript in the confirmation dialog before we
+                # commit the face template to the saved profiles.
                 with self.lock:
-                    self.state["candidate_samples"] = []
-                    self.state["candidate_embedding"] = None
-                    self.state["candidate_sampling_notified"] = False
-                    self.state["candidate_ready_notified"] = False
-                    self.state["people_changed"] = True
-                    self.state["current_visitor"] = name
-                    self.state["relationship"] = relationship
-                relation_text = f", your {relationship}" if relationship else ""
-                message = f"Saved {name}{relation_text}. I'll recognize them next time."
+                    self.state["pending_enrollment"] = {
+                        "name": name, "relationship": relationship,
+                    }
+                    self.state["enrollment_requested"] += 1
+                message = f"I heard {name}. Please confirm or correct the name in the save dialog."
         elif intent == "remember":
             memory = request.get("memory", "").strip()
             if not memory:
@@ -642,6 +751,7 @@ class AssistantService:
                     word in text.lower() for word in ("meeting", "appointment")
                 )
                 if appointment_request:
+                    appointment_summary = "Appointment" if "appointment" in text.lower() else "Meeting"
                     with_person = request.get("meeting_with", "").strip()
                     date_iso = request.get("date_iso", "").strip()
                     time_24h = request.get("time_24h", "").strip()
@@ -650,16 +760,24 @@ class AssistantService:
                         missing.append("who it is with")
                     if not date_iso:
                         missing.append("the date")
-                    if not time_24h:
-                        missing.append("the time")
                     if missing:
+                        with self.lock:
+                            self.state["pending_appointment"] = {
+                                "summary": appointment_summary,
+                                "meeting_with": with_person,
+                                "date_iso": date_iso,
+                                "time_24h": time_24h,
+                                "date_text": request.get("date_text", "").strip(),
+                                "time_text": request.get("time_text", "").strip(),
+                            }
                         message = "I can book that. Please tell me " + ", ".join(missing) + "."
                         self.publish_response(message, remember=False)
                         return message
-                    save_appointment(memory, with_person, date_iso, time_24h)
+                    save_appointment(appointment_summary, with_person, date_iso, time_24h)
                     date_label = request.get("date_text", "").strip() or date_iso
                     time_label = request.get("time_text", "").strip() or time_24h
-                    message = f"Booked {memory} with {with_person} for {date_label} at {time_label}."
+                    time_details = f" at {time_label}" if time_label else "; no time was specified"
+                    message = f"Booked your {appointment_summary.lower()} with {with_person} for {date_label}{time_details}."
                     self.publish_response(message, remember=False)
                     return message
                 else:
@@ -684,7 +802,7 @@ class AssistantService:
             message = answer_conversationally(text, name, relationship, reminder, history)
         else:
             message = "I didn't understand that request."
-        self.publish_response(message)
+        self.publish_response(message, remember=False)
         return message
 
     def accept_phone_audio(self, audio_bytes):
@@ -717,6 +835,8 @@ class AssistantService:
                 "speech_id": self.state["speech_id"],
                 "profile_reminder": self.state["profile_reminder"],
                 "edit_requested": self.state["edit_requested"],
+                "enrollment_requested": self.state["enrollment_requested"],
+                "pending_enrollment": self.state.get("pending_enrollment"),
                 "last_transcript": self.state["last_transcript"],
             }
 
@@ -946,13 +1066,13 @@ class Handler(BaseHTTPRequestHandler):
                     service.state["paused"] = not service.state["paused"]
                     paused = service.state["paused"]
                 response = "Recognition paused." if paused else "Recognition resumed."
-                service.publish_response(response)
+                service.publish_response(response, remember=False)
             elif action == "mute":
                 with service.lock:
                     service.state["muted"] = not service.state["muted"]
                     muted = service.state["muted"]
                 response = "Speech muted." if muted else "Speech unmuted."
-                service.publish_response(response)
+                service.publish_response(response, remember=False)
             else:
                 self.send_json({"error": "Unknown control."}, HTTPStatus.BAD_REQUEST)
                 return
@@ -984,6 +1104,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             except Exception as exc:
                 self.send_json({"error": f"Could not save person details: {exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if path == "/api/enroll":
+            name = str(data.get("name", "")).strip()
+            relationship = str(data.get("relationship", "")).strip()
+            try:
+                message = service.confirm_person_enrollment(name, relationship)
+                service.publish_response(message, remember=False)
+                self.send_json({"message": message})
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                self.send_json({"error": f"Could not save person: {exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 

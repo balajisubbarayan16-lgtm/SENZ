@@ -115,15 +115,18 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
     memory_prefix = bool(memory_prefix_pattern.match(command_text))
     appointment_topic = any(word in lower for word in ("meeting", "appointment", "calendar", "schedule"))
     appointment_save_pattern = re.compile(
-        r"^(?:(?:i\s+(?:want|would like|need)\s+to|can you|could you|please)\s+)?"
-        r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+"
+        r"^(?:(?:i\s+(?:want|would like|need)\s+to|i'd\s+like\s+to|can you|could you|please)\s+)?"
+        r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+(?:me\s+)?"
         r"(?:(?:a|an|the)\s+)?(?:meeting|appointment)\b",
         re.IGNORECASE,
     )
     appointment_save = bool(appointment_save_pattern.match(command_text))
     meeting_question = (
         not appointment_save and appointment_topic
-        and any(word in lower for word in ("any", "when", "who", "do i", "do we", "is there", "what", "have i"))
+        and any(phrase in lower for phrase in (
+            "any", "when", "who", "do i", "do we", "is there", "what", "have i",
+            "am i", "will i", "are there", "show me", "list my", "check my", "got a",
+        ))
     )
     person_question = any(
         phrase in lower for phrase in (
@@ -181,9 +184,11 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
                 }
 
     if meeting_question:
+        meeting_fields = _extract_meeting_fields(normalized, known_names)
         return {
             "intent": "ask_meetings",
             "meeting_with": _find_person_name(normalized, known_names)
+                or meeting_fields.get("meeting_with", "")
                 or (current_person if re.search(r"\b(?:him|her|them|that person)\b", normalized, re.IGNORECASE) else ""),
         }
 
@@ -194,8 +199,8 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
     if memory_prefix or appointment_save:
         if appointment_save:
             memory = re.sub(
-                r"^(?:(?:i\s+(?:want|would like|need)\s+to|can you|could you|please)\s+)?"
-                r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+"
+                r"^(?:(?:i\s+(?:want|would like|need)\s+to|i'd\s+like\s+to|can you|could you|please)\s+)?"
+                r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+(?:me\s+)?"
                 r"(?:(?:a|an|the)\s+)?",
                 "", command_text, count=1, flags=re.IGNORECASE,
             ).strip(" .,!?")
@@ -502,13 +507,45 @@ def _extract_meeting_fields(text, known_names=()):
             result["date_iso"] = day.isoformat()
             result["date_text"] = weekday_match.group(0)
 
+    if not result["date_iso"]:
+        numeric_date = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b|\b(\d{1,2})/(\d{1,2})/(\d{4})\b", text)
+        month_names = "january|february|march|april|may|june|july|august|september|october|november|december"
+        named_date = re.search(
+            r"\b(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(" + month_names + r")(?:\s+(\d{4}))?\b|"
+            r"\b(?:on\s+)?(" + month_names + r")\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b",
+            lower,
+        )
+        try:
+            if numeric_date:
+                if numeric_date.group(1):
+                    day = datetime.strptime(numeric_date.group(0), "%Y-%m-%d").date()
+                else:
+                    day = datetime.strptime(numeric_date.group(0), "%d/%m/%Y").date()
+                result["date_iso"] = day.isoformat()
+                result["date_text"] = day.strftime("%A, %B ") + str(day.day)
+            elif named_date:
+                if named_date.group(1):
+                    day_number, month, year = named_date.group(1), named_date.group(2), named_date.group(3)
+                else:
+                    month, day_number, year = named_date.group(4), named_date.group(5), named_date.group(6)
+                month_number = datetime.strptime(month[:3].title(), "%b").month
+                year_number = int(year) if year else now.year
+                day = datetime(year_number, month_number, int(day_number)).date()
+                if not year and day < now:
+                    day = day.replace(year=now.year + 1)
+                result["date_iso"] = day.isoformat()
+                result["date_text"] = day.strftime("%A, %B ") + str(day.day)
+        except ValueError:
+            pass
+
     time_match = re.search(
-        r"\b(?:at\s+)?(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b|\b(at\s+\d{1,2}:\d{2})\b",
+        r"\b(?:at\s+)?(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b|"
+        r"\b(at\s+\d{1,2}:\d{2})\b|\b(at\s+noon|at\s+midnight)\b",
         text,
         re.IGNORECASE,
     )
     if time_match:
-        result["time_text"] = time_match.group(0).strip()
+        result["time_text"] = re.sub(r"^\s*at\s+", "", time_match.group(0).strip(), flags=re.IGNORECASE)
         if time_match.group(1):
             hour = int(time_match.group(1))
             minute = int(time_match.group(2) or "0")
@@ -518,8 +555,13 @@ def _extract_meeting_fields(text, known_names=()):
             if period == "am" and hour == 12:
                 hour = 0
             result["time_24h"] = f"{hour:02d}:{minute:02d}"
-    elif re.search(r"\bat\s+\d{1,2}\b", lower):
-        result["time_text"] = re.search(r"\bat\s+\d{1,2}\b", text, re.IGNORECASE).group(0)
+        elif time_match.group(4):
+            result["time_text"] = re.sub(r"^\s*at\s+", "", time_match.group(4), flags=re.IGNORECASE)
+            hour, minute = map(int, re.findall(r"\d+", time_match.group(4)))
+            result["time_24h"] = f"{hour:02d}:{minute:02d}"
+        elif time_match.group(5):
+            result["time_text"] = re.sub(r"^\s*at\s+", "", time_match.group(5), flags=re.IGNORECASE)
+            result["time_24h"] = "12:00" if "noon" in time_match.group(5).lower() else "00:00"
     return result
 
 
@@ -549,26 +591,28 @@ def save_meeting(summary, with_person="", date_iso="", time_24h="", date_text=""
 
 
 def save_appointment(summary, with_person, date_iso, time_24h):
-    """Validate a complete appointment, then save it for both UI and voice lookup."""
+    """Save an appointment; time is optional for voice bookings when not stated."""
     try:
         day = datetime.strptime(str(date_iso), "%Y-%m-%d").date()
-        appointment_time = datetime.strptime(str(time_24h), "%H:%M").time()
+        appointment_time = datetime.strptime(str(time_24h), "%H:%M").time() if str(time_24h).strip() else None
     except (TypeError, ValueError) as exc:
         raise ValueError("Choose a valid appointment date and time.") from exc
     if not str(with_person).strip():
         raise ValueError("Enter who the appointment is with.")
     if not str(summary).strip():
         raise ValueError("Enter a short appointment description.")
-    starts_at = datetime.combine(day, appointment_time, tzinfo=LOCAL_TIMEZONE)
+    # Use end of day only for expiration/sorting. Keep the actual appointment
+    # time blank so the assistant never claims that 11:59 PM was booked.
+    starts_at = datetime.combine(day, appointment_time or datetime_time(23, 59), tzinfo=LOCAL_TIMEZONE)
     if starts_at <= datetime.now(LOCAL_TIMEZONE):
-        raise ValueError("Choose a future date and time.")
+        raise ValueError("Choose a future date, or a future time if you provide one.")
     today = datetime.now(LOCAL_TIMEZONE).date()
     date_text = "today" if day == today else (
         "tomorrow" if day == today + timedelta(days=1) else day.strftime("%A, %B ") + str(day.day)
     )
-    time_text = datetime.combine(day, appointment_time).strftime("%I:%M %p").lstrip("0")
+    time_text = datetime.combine(day, appointment_time).strftime("%I:%M %p").lstrip("0") if appointment_time else ""
     save_meeting(str(summary).strip(), str(with_person).strip(), day.isoformat(),
-                 appointment_time.strftime("%H:%M"), date_text, time_text)
+                 appointment_time.strftime("%H:%M") if appointment_time else "", date_text, time_text)
 
 
 def list_appointments(limit=20):

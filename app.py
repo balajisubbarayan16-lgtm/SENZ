@@ -501,7 +501,6 @@ class VisitorAssistantApp:
             self._respond(f"I couldn't complete that request: {exc}")
 
     def _respond(self, text):
-        self.state["last_reminder"] = text
         self.events.put(("assistant_response", text))
         self._speak(text)
 
@@ -581,8 +580,7 @@ class VisitorAssistantApp:
                 elif event == "heard":
                     self.heard_text.configure(text=f"Heard: {payload}")
                 elif event == "assistant_response":
-                    self.reminder_text.configure(text=payload)
-                    self.voice_status.configure(text="Done. You can ask another question or give a save instruction.")
+                    self.voice_status.configure(text=payload)
                 elif event == "notice":
                     self.voice_status.configure(text=payload)
                     self.state["notice_until"] = time.monotonic() + 6
