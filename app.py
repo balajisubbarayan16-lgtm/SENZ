@@ -1,4 +1,4 @@
-"""A simple local desktop interface for Visitor Assistant."""
+"""A simple local desktop interface for SPONGE."""
 
 import base64
 import json
@@ -48,7 +48,7 @@ LINE = "#E2E8F0"
 class VisitorAssistantApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Visitor Assistant")
+        self.root.title("SPONGE")
         self.root.geometry("1240x800")
         self.root.minsize(1000, 700)
         self.root.configure(bg=BG)
@@ -86,7 +86,7 @@ class VisitorAssistantApp:
         header.pack_propagate(False)
         title_group = tk.Frame(header, bg=CARD)
         title_group.pack(side="left", padx=28, pady=15)
-        tk.Label(title_group, text="Visitor Assistant", bg=CARD, fg=INK,
+        tk.Label(title_group, text="SPONGE", bg=CARD, fg=INK,
                  font=("Segoe UI", 21, "bold")).pack(anchor="w")
         tk.Label(title_group, text="A little context, right when you need it.", bg=CARD, fg=SUBTLE,
                  font=("Segoe UI", 10)).pack(anchor="w", pady=(1, 0))

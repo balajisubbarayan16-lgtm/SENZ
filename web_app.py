@@ -1,4 +1,4 @@
-"""Mobile-friendly local web interface for Visitor Assistant.
+"""Mobile-friendly local web interface for SPONGE.
 
 The PC hosts this page and continues to run the camera, face models, Ollama,
 Vosk, and MongoDB locally. Phones connect to the PC over the local network.
@@ -55,7 +55,7 @@ PAGE = r'''<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#101a2c">
-  <title>Visitor Assistant</title>
+  <title>SPONGE</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1220;--panel:#111c2f;--panel2:#16243a;--line:#263650;--text:#eef4ff;--muted:#a7b5ca;--blue:#7da8ff;--green:#6cdbac;--amber:#ffd27a}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(1000px 500px at 20% -10%,#1a3155 0%,transparent 60%),var(--bg);color:var(--text);font:16px/1.45 Segoe UI,system-ui,sans-serif}
@@ -69,7 +69,7 @@ PAGE = r'''<!doctype html>
 </head>
 <body>
   <main class="wrap">
-    <header class="top"><div><div class="brand">Visitor Assistant</div><div class="sub">Private visitor context, hosted on your PC</div></div><div class="badge">● LOCAL NETWORK</div></header>
+    <header class="top"><div><div class="brand">SPONGE</div><div class="sub">Private visitor context, hosted on your PC</div></div><div class="badge">● LOCAL NETWORK</div></header>
     <section class="grid">
       <div class="card">
         <div class="camera-head"><h2>Live camera</h2><span id="cameraStatus" class="status">Camera off</span></div>
@@ -145,8 +145,8 @@ $('video').src='/video';setInterval(refresh,900);refresh();
 </body></html>'''
 
 
-LOGIN_PAGE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visitor Assistant access</title><style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1220;color:#eef4ff;font:16px Segoe UI,system-ui,sans-serif;padding:18px}.card{max-width:410px;width:100%;padding:25px;border:1px solid #263650;border-radius:18px;background:#111c2f}h1{margin:0 0 8px;font-size:24px}p{color:#a7b5ca;line-height:1.5}input,button{width:100%;padding:13px;border-radius:11px;font:16px Segoe UI,system-ui}input{background:#0a1424;color:white;border:1px solid #263650;margin:8px 0 10px}button{border:0;background:#4d7de0;color:white;font-weight:700}.error{color:#ffadad;min-height:22px}</style></head><body><form class="card" method="post" action="/login"><h1>Visitor Assistant</h1><p>Enter the access code shown in the PC terminal. This keeps other devices on your Wi‑Fi from opening the camera and reminders.</p><div class="error">{{ERROR}}</div><input name="pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="Access code" required autofocus><button>Connect</button></form></body></html>'''
+LOGIN_PAGE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SPONGE access</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1220;color:#eef4ff;font:16px Segoe UI,system-ui,sans-serif;padding:18px}.card{max-width:410px;width:100%;padding:25px;border:1px solid #263650;border-radius:18px;background:#111c2f}h1{margin:0 0 8px;font-size:24px}p{color:#a7b5ca;line-height:1.5}input,button{width:100%;padding:13px;border-radius:11px;font:16px Segoe UI,system-ui}input{background:#0a1424;color:white;border:1px solid #263650;margin:8px 0 10px}button{border:0;background:#4d7de0;color:white;font-weight:700}.error{color:#ffadad;min-height:22px}</style></head><body><form class="card" method="post" action="/login"><h1>SPONGE</h1><p>Enter the access code shown in the PC terminal. This keeps other devices on your Wi‑Fi from opening the camera and reminders.</p><div class="error">{{ERROR}}</div><input name="pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="Access code" required autofocus><button>Connect</button></form></body></html>'''
 
 
 class AssistantService:
@@ -1001,7 +1001,7 @@ def local_ip():
 
 def main():
     server = WebServer(("0.0.0.0", PORT), Handler)
-    print("Visitor Assistant web app is ready.")
+    print("SPONGE is ready.")
     print(f"On this PC: http://127.0.0.1:{PORT}")
     print(f"On the same Wi-Fi: http://{local_ip()}:{PORT}")
     print(f"Access code: {server.access_pin}")
@@ -1009,7 +1009,7 @@ def main():
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
-        print("\nStopping Visitor Assistant…")
+        print("\nStopping SPONGE…")
     finally:
         service.stop()
         server.server_close()

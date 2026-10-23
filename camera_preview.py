@@ -10,7 +10,7 @@ while True:
     if not ok:
         break
 
-    cv2.imshow("Visitor Assistant — press Q to close", frame)
+    cv2.imshow("SPONGE — press Q to close", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break

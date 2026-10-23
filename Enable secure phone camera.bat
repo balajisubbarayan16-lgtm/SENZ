@@ -1,5 +1,5 @@
 @echo off
-echo Make sure Visitor Assistant is running and Tailscale is installed and signed in on this PC.
+echo Make sure SPONGE is running and Tailscale is installed and signed in on this PC.
 echo The phone must also have Tailscale installed and signed in to the same account.
 echo.
 set "TS_EXE="

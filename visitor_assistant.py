@@ -273,7 +273,7 @@ def recognize(detector, recognizer):
         "paused": False, "muted": False, "stop": False,
         "last_reminder": "", "voice_error": "",
     }
-    window_name = "Visitor Assistant — local recognition"
+    window_name = "SPONGE — local recognition"
 
     voice_worker = None
 
