@@ -114,8 +114,15 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
     )
     memory_prefix = bool(memory_prefix_pattern.match(command_text))
     appointment_topic = any(word in lower for word in ("meeting", "appointment", "calendar", "schedule"))
+    appointment_save_pattern = re.compile(
+        r"^(?:(?:i\s+(?:want|would like|need)\s+to|can you|could you|please)\s+)?"
+        r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+"
+        r"(?:(?:a|an|the)\s+)?(?:meeting|appointment)\b",
+        re.IGNORECASE,
+    )
+    appointment_save = bool(appointment_save_pattern.match(command_text))
     meeting_question = (
-        appointment_topic
+        not appointment_save and appointment_topic
         and any(word in lower for word in ("any", "when", "who", "do i", "do we", "is there", "what", "have i"))
     )
     person_question = any(
@@ -184,8 +191,16 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
         selected_name = _find_person_name(normalized, known_names) or current_person
         return {"intent": "ask_person", "name": selected_name}
 
-    if memory_prefix:
-        memory = memory_prefix_pattern.sub("", command_text, count=1).strip(" .,!?")
+    if memory_prefix or appointment_save:
+        if appointment_save:
+            memory = re.sub(
+                r"^(?:(?:i\s+(?:want|would like|need)\s+to|can you|could you|please)\s+)?"
+                r"(?:book|schedule|set(?:\s+up)?|arrange|create|add|save|make)\s+"
+                r"(?:(?:a|an|the)\s+)?",
+                "", command_text, count=1, flags=re.IGNORECASE,
+            ).strip(" .,!?")
+        else:
+            memory = memory_prefix_pattern.sub("", command_text, count=1).strip(" .,!?")
         if memory:
             name = _find_person_name(memory, known_names) or current_person or "General"
             meeting_fields = _extract_meeting_fields(memory, known_names) if any(
@@ -195,6 +210,7 @@ def interpret_voice_utterance(text, known_names=(), current_person="", history=(
                 "intent": "remember", "name": name, "relationship": "",
                 "memory": memory, "meeting_with": meeting_fields.get("meeting_with", "")
                     or (current_person if re.search(r"\b(?:him|her|them|this person|that person)\b", memory, re.IGNORECASE) else ""),
+                "is_appointment": appointment_save,
                 "date_iso": meeting_fields.get("date_iso", ""),
                 "time_24h": meeting_fields.get("time_24h", ""),
                 "date_text": meeting_fields.get("date_text", ""),
